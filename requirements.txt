@@ -2,3 +2,5 @@ django==6.0.3
 djangorestframework==3..17.1
 django-cors-headers==4.9.0
 requests==2.33.1
+react==19.2.4
+react-router-dom==7.13.2
