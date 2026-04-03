@@ -2,34 +2,40 @@ import { useEffect, useRef, useState } from 'react'
 
 function DinoGame({ onClose }) {
     const canvasRef = useRef(null)
-    const gameRef = useRef({
-        dino: { y: 0, vy: 0, jumping: false },
+    const gameRef = useRef(null)
+    const [dead, setDead] = useState(false)
+    const [score, setScore] = useState(0)
+
+    const W = 360
+    const H = 180
+    const GROUND_Y = H - 30      // y position of ground line
+    const DINO_X = 50
+    const DINO_W = 28
+    const DINO_H = 38
+    const OBS_W = 18
+
+    const initGame = () => ({
+        dinoY: GROUND_Y - DINO_H,  // top of dino, sitting on ground
+        vy: 0,
+        jumping: false,
         obstacles: [],
         score: 0,
-        speed: 4,
+        speed: 3.5,
+        tickCount: 0,
         gameOver: false,
         animFrame: null,
-        tickCount: 0,
     })
-    const [score, setScore] = useState(0)
-    const [dead, setDead] = useState(false)
-
-    const GROUND = 120
-    const DINO_X = 50
-    const DINO_W = 30
-    const DINO_H = 40
-    const OBS_W = 20
 
     useEffect(() => {
         const canvas = canvasRef.current
         const ctx = canvas.getContext('2d')
+        gameRef.current = initGame()
         const g = gameRef.current
-        g.dino.y = GROUND
 
         const jump = () => {
-            if (!g.dino.jumping && !g.gameOver) {
-                g.dino.vy = -12
-                g.dino.jumping = true
+            if (!g.jumping && !g.gameOver) {
+                g.vy = -10  // negative = moving up in canvas coords
+                g.jumping = true
             }
         }
 
@@ -39,193 +45,212 @@ function DinoGame({ onClose }) {
                 jump()
             }
         }
-        const handleClick = () => jump()
 
         window.addEventListener('keydown', handleKey)
-        canvas.addEventListener('click', handleClick)
+        canvas.addEventListener('click', jump)
 
-        const loop = () => {
-            if (g.gameOver) return
+        const draw = () => {
+            ctx.clearRect(0, 0, W, H)
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            // background
+            ctx.fillStyle = '#111'
+            ctx.fillRect(0, 0, W, H)
 
-            // ground
-            ctx.fillStyle = '#333'
-            ctx.fillRect(0, canvas.height - 30, canvas.width, 2)
+            // ground line
+            ctx.fillStyle = '#444'
+            ctx.fillRect(0, GROUND_Y, W, 2)
 
-            // dino
-            g.dino.vy += 0.7
-            g.dino.y += g.dino.vy
-            if (g.dino.y >= GROUND) {
-                g.dino.y = GROUND
-                g.dino.vy = 0
-                g.dino.jumping = false
+            // update dino physics
+            g.vy += 0.6                     // gravity pulls down (positive y)
+            g.dinoY += g.vy
+
+            // land on ground
+            if (g.dinoY >= GROUND_Y - DINO_H) {
+                g.dinoY = GROUND_Y - DINO_H
+                g.vy = 0
+                g.jumping = false
             }
 
+            // draw dino (rectangle, top-left corner is DINO_X, g.dinoY)
             ctx.fillStyle = '#6c63ff'
-            ctx.fillRect(DINO_X, canvas.height - 30 - g.dino.y - DINO_H, DINO_W, DINO_H)
+            ctx.fillRect(DINO_X, g.dinoY, DINO_W, DINO_H)
 
-            // eyes
+            // dino eye
             ctx.fillStyle = '#fff'
-            ctx.fillRect(DINO_X + 18, canvas.height - 30 - g.dino.y - DINO_H + 8, 6, 6)
+            ctx.fillRect(DINO_X + 18, g.dinoY + 8, 6, 6)
             ctx.fillStyle = '#000'
-            ctx.fillRect(DINO_X + 20, canvas.height - 30 - g.dino.y - DINO_H + 10, 3, 3)
+            ctx.fillRect(DINO_X + 20, g.dinoY + 10, 3, 3)
 
-            // obstacles
+            // spawn obstacles
             g.tickCount++
-            if (g.tickCount > Math.max(60 - g.score / 5, 30)) {
-                const h = 20 + Math.random() * 30
-                g.obstacles.push({ x: canvas.width, h })
+            const spawnInterval = Math.max(70 - Math.floor(g.score / 10), 35)
+            if (g.tickCount >= spawnInterval) {
+                const obsH = 20 + Math.random() * 25
+                g.obstacles.push({
+                    x: W,
+                    h: obsH,
+                    y: GROUND_Y - obsH   // sits on ground
+                })
                 g.tickCount = 0
             }
 
+            // move + draw obstacles
+            g.obstacles = g.obstacles.filter(obs => obs.x + OBS_W > 0)
             g.obstacles.forEach(obs => {
                 obs.x -= g.speed
                 ctx.fillStyle = '#ff4444'
-                ctx.fillRect(obs.x, canvas.height - 30 - obs.h, OBS_W, obs.h)
+                ctx.fillRect(obs.x, obs.y, OBS_W, obs.h)
             })
 
-            g.obstacles = g.obstacles.filter(obs => obs.x > -OBS_W)
+            // collision detection
+            const dinoLeft = DINO_X + 4
+            const dinoRight = DINO_X + DINO_W - 4
+            const dinoBottom = g.dinoY + DINO_H - 4
 
-            // collision
-            const dinoTop = canvas.height - 30 - g.dino.y - DINO_H
-            const dinoBottom = canvas.height - 30 - g.dino.y
-            g.obstacles.forEach(obs => {
-                const obsLeft = obs.x
-                const obsRight = obs.x + OBS_W
-                const obsTop = canvas.height - 30 - obs.h
+            for (const obs of g.obstacles) {
+                const obsLeft = obs.x + 3
+                const obsRight = obs.x + OBS_W - 3
+                const obsTop = obs.y
+
                 if (
-                    DINO_X + DINO_W > obsLeft + 4 &&
-                    DINO_X < obsRight - 4 &&
-                    dinoBottom > obsTop + 4 &&
-                    dinoTop < canvas.height - 30
+                    dinoRight > obsLeft &&
+                    dinoLeft < obsRight &&
+                    dinoBottom > obsTop
                 ) {
                     g.gameOver = true
                     setDead(true)
                     setScore(Math.floor(g.score))
                     return
                 }
-            })
+            }
 
-            // score
-            g.score += 0.1
-            g.speed = 4 + g.score / 50
+            // score + speed
+            g.score += 0.08
+            g.speed = 3.5 + g.score / 40
             setScore(Math.floor(g.score))
 
-            ctx.fillStyle = '#888'
-            ctx.font = '14px monospace'
-            ctx.fillText(`score: ${Math.floor(g.score)}`, canvas.width - 90, 20)
+            // score text
+            ctx.fillStyle = '#666'
+            ctx.font = '13px monospace'
+            ctx.fillText(`score: ${Math.floor(g.score)}`, W - 90, 20)
 
-            g.animFrame = requestAnimationFrame(loop)
+            g.animFrame = requestAnimationFrame(draw)
         }
 
-        g.animFrame = requestAnimationFrame(loop)
+        g.animFrame = requestAnimationFrame(draw)
 
         return () => {
             cancelAnimationFrame(g.animFrame)
             window.removeEventListener('keydown', handleKey)
-            canvas.removeEventListener('click', handleClick)
+            canvas.removeEventListener('click', jump)
         }
     }, [])
 
     const restart = () => {
+        cancelAnimationFrame(gameRef.current?.animFrame)
+        const canvas = canvasRef.current
+        const ctx = canvas.getContext('2d')
+        gameRef.current = initGame()
         const g = gameRef.current
-        g.dino = { y: 0, vy: 0, jumping: false }
-        g.obstacles = []
-        g.score = 0
-        g.speed = 4
-        g.gameOver = false
-        g.tickCount = 0
         setDead(false)
         setScore(0)
 
-        const canvas = canvasRef.current
-        const ctx = canvas.getContext('2d')
-
         const jump = () => {
-            if (!g.dino.jumping && !g.gameOver) {
-                g.dino.vy = -12
-                g.dino.jumping = true
+            if (!g.jumping && !g.gameOver) {
+                g.vy = -10
+                g.jumping = true
             }
         }
 
-        const loop = () => {
-            if (g.gameOver) return
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
-            ctx.fillStyle = '#333'
-            ctx.fillRect(0, canvas.height - 30, canvas.width, 2)
-            g.dino.vy += 0.7
-            g.dino.y += g.dino.vy
-            if (g.dino.y >= GROUND) {
-                g.dino.y = GROUND
-                g.dino.vy = 0
-                g.dino.jumping = false
+        canvas.onclick = jump
+
+        const draw = () => {
+            ctx.clearRect(0, 0, W, H)
+            ctx.fillStyle = '#111'
+            ctx.fillRect(0, 0, W, H)
+            ctx.fillStyle = '#444'
+            ctx.fillRect(0, GROUND_Y, W, 2)
+
+            g.vy += 0.6
+            g.dinoY += g.vy
+            if (g.dinoY >= GROUND_Y - DINO_H) {
+                g.dinoY = GROUND_Y - DINO_H
+                g.vy = 0
+                g.jumping = false
             }
+
             ctx.fillStyle = '#6c63ff'
-            ctx.fillRect(DINO_X, canvas.height - 30 - g.dino.y - DINO_H, DINO_W, DINO_H)
+            ctx.fillRect(DINO_X, g.dinoY, DINO_W, DINO_H)
             ctx.fillStyle = '#fff'
-            ctx.fillRect(DINO_X + 18, canvas.height - 30 - g.dino.y - DINO_H + 8, 6, 6)
+            ctx.fillRect(DINO_X + 18, g.dinoY + 8, 6, 6)
             ctx.fillStyle = '#000'
-            ctx.fillRect(DINO_X + 20, canvas.height - 30 - g.dino.y - DINO_H + 10, 3, 3)
+            ctx.fillRect(DINO_X + 20, g.dinoY + 10, 3, 3)
+
             g.tickCount++
-            if (g.tickCount > Math.max(60 - g.score / 5, 30)) {
-                const h = 20 + Math.random() * 30
-                g.obstacles.push({ x: canvas.width, h })
+            const spawnInterval = Math.max(70 - Math.floor(g.score / 10), 35)
+            if (g.tickCount >= spawnInterval) {
+                const obsH = 20 + Math.random() * 25
+                g.obstacles.push({ x: W, h: obsH, y: GROUND_Y - obsH })
                 g.tickCount = 0
             }
+
+            g.obstacles = g.obstacles.filter(obs => obs.x + OBS_W > 0)
             g.obstacles.forEach(obs => {
                 obs.x -= g.speed
                 ctx.fillStyle = '#ff4444'
-                ctx.fillRect(obs.x, canvas.height - 30 - obs.h, OBS_W, obs.h)
+                ctx.fillRect(obs.x, obs.y, OBS_W, obs.h)
             })
-            g.obstacles = g.obstacles.filter(obs => obs.x > -OBS_W)
-            const dinoTop = canvas.height - 30 - g.dino.y - DINO_H
-            const dinoBottom = canvas.height - 30 - g.dino.y
-            g.obstacles.forEach(obs => {
+
+            const dinoBottom = g.dinoY + DINO_H - 4
+            for (const obs of g.obstacles) {
                 if (
-                    DINO_X + DINO_W > obs.x + 4 &&
-                    DINO_X < obs.x + OBS_W - 4 &&
-                    dinoBottom > canvas.height - 30 - obs.h + 4 &&
-                    dinoTop < canvas.height - 30
+                    DINO_X + DINO_W - 4 > obs.x + 3 &&
+                    DINO_X + 4 < obs.x + OBS_W - 3 &&
+                    dinoBottom > obs.y
                 ) {
                     g.gameOver = true
                     setDead(true)
                     setScore(Math.floor(g.score))
                     return
                 }
-            })
-            g.score += 0.1
-            g.speed = 4 + g.score / 50
+            }
+
+            g.score += 0.08
+            g.speed = 3.5 + g.score / 40
             setScore(Math.floor(g.score))
-            ctx.fillStyle = '#888'
-            ctx.font = '14px monospace'
-            ctx.fillText(`score: ${Math.floor(g.score)}`, canvas.width - 90, 20)
-            g.animFrame = requestAnimationFrame(loop)
+
+            ctx.fillStyle = '#666'
+            ctx.font = '13px monospace'
+            ctx.fillText(`score: ${Math.floor(g.score)}`, W - 90, 20)
+
+            g.animFrame = requestAnimationFrame(draw)
         }
 
-        g.animFrame = requestAnimationFrame(loop)
+        g.animFrame = requestAnimationFrame(draw)
     }
 
     return (
         <div style={styles.wrapper}>
             <p style={styles.title}>🦖 Don't hit the red things</p>
             <p style={styles.hint}>Space / Arrow Up / Click to jump</p>
-            <canvas
-                ref={canvasRef}
-                width={360}
-                height={180}
-                style={styles.canvas}
-            />
-            {dead && (
-                <div style={styles.deadOverlay}>
-                    <p style={styles.deadText}>💀 Score: {score}</p>
-                    <p style={styles.deadSub}>you were supposed to be studying</p>
-                    <div style={styles.btnRow}>
-                        <button style={styles.retryBtn} onClick={restart}>retry 🔄</button>
-                        <button style={styles.closeBtn} onClick={onClose}>close 😔</button>
+            <div style={{ position: 'relative' }}>
+                <canvas
+                    ref={canvasRef}
+                    width={W}
+                    height={H}
+                    style={styles.canvas}
+                />
+                {dead && (
+                    <div style={styles.deadOverlay}>
+                        <p style={styles.deadText}>💀 Score: {score}</p>
+                        <p style={styles.deadSub}>you were supposed to be studying</p>
+                        <div style={styles.btnRow}>
+                            <button style={styles.retryBtn} onClick={restart}>retry 🔄</button>
+                            <button style={styles.closeBtn} onClick={onClose}>close 😔</button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     )
 }
@@ -236,14 +261,13 @@ const styles = {
         flexDirection: 'column',
         alignItems: 'center',
         gap: '8px',
-        position: 'relative',
     },
     title: { fontWeight: 'bold', fontSize: '1rem' },
     hint: { color: '#888', fontSize: '0.8rem' },
     canvas: {
         borderRadius: '8px',
-        background: '#111',
         cursor: 'pointer',
+        display: 'block',
     },
     deadOverlay: {
         position: 'absolute',
@@ -277,4 +301,4 @@ const styles = {
     },
 }
 
-export default DinoGame 
+export default DinoGame
